@@ -9,6 +9,8 @@ from numpy.linalg import norm
 import numpy as np
 import matplotlib.pyplot as plt
 
+from matplotlib import cm
+
 class HoughLinesReward(RewardFunctionAbc):
 
     def __init__(self, s_subgraph, *args, **kwargs):
@@ -40,28 +42,38 @@ class HoughLinesReward(RewardFunctionAbc):
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
                 .scatter_(0, single_pred[None], 1)
+            
 
             # need masses to determine what potential_objects can be considered background
             label_masses = one_hot.flatten(1).sum(-1)
             # everything else are potential potential_objects
-            bg_obj_mask = label_masses > 2000
-            potenial_obj_mask = label_masses <= 2000
-            false_obj_mask = label_masses < 800
+            bg_obj_mask = label_masses > 1000
+            potenial_obj_mask = label_masses <= 10000
+            false_obj_mask = label_masses < 100
             bg_object_ids = torch.nonzero(bg_obj_mask).squeeze(1)  # object label IDs
             potential_object_ids = torch.nonzero(potenial_obj_mask).squeeze(1)  # object label IDs
-
+            
+            # f_label_masses = torch.flatten(label_masses)
+            # plt.hist(ravelOH[f_label_masses < 10000], bins=50)
+            # plt.savefig('hist.png')
+            
             potential_objects = one_hot[potential_object_ids]  # get object masks
             bg_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[bg_object_ids])[1:] - 1
             object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in potential_objects]
             false_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[false_obj_mask])[1:] - 1
-
+            
+            # generate figure
+            fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharex=True, sharey=True)
+            ax = axes.ravel()
             # Detect two radii
             potential_fg = (potential_objects * torch.arange(len(potential_objects), device=dev)[:, None, None]).sum(0).float()
             edge_image = ((- self.max_p(-potential_fg.unsqueeze(0)).squeeze()) != potential_fg).float().cpu().numpy()
-            # hough_radii = np.arange(self.range_rad[0], self.range_rad[1]) maybe some range for angles
-            # hough_res = hough_circle(edge_image, hough_radii)
-            # accums, cx, cy, radii = hough_circle_peaks(hough_res, hough_radii, total_num_peaks=self.range_num[1])
-            
+       
+            ax[0].imshow(single_pred)
+            ax[0].set_title('Input image')
+            ax[1].imshow(edge_image)
+            ax[1].set_title('edges')
+
             # calculations for hough line reward
             tested_angles = np.linspace(0, 2 * np.pi, 360, endpoint=False)
             hough_res, angles, distc = hough_line(edge_image, theta=tested_angles)
@@ -69,6 +81,21 @@ class HoughLinesReward(RewardFunctionAbc):
             hough_pred_lines = probabilistic_hough_line(edge_image, line_length=20,line_gap=10)
             r_dists, thetas = self.compute_r_theta(prediction_segmentation, hough_pred_lines)
             accums = self.find_accums(r_dists, thetas, hough_res)
+            
+            # plot detected lines
+            ax[2].imshow(edge_image * 0)
+            for ln in hough_pred_lines:
+                p0, p1 = ln
+                ax[2].plot((p0[0], p1[0]), (p0[1], p1[1]))
+            ax[2].set_xlim((0, single_pred.shape[1]))
+            ax[2].set_ylim((single_pred.shape[0], 0))
+            ax[2].set_title('Probabilistic Hough')
+            
+            for a4 in ax:
+                a4.set_axis_off()
+                
+            plt.tight_layout()
+            fig.savefig('full_figure2.png')
 
             r0 = []
             c0 = []
@@ -78,15 +105,15 @@ class HoughLinesReward(RewardFunctionAbc):
                 p0, p1 = lineـ
 
                 r0.append(p0[0]) 
-                c0.append(p1[0])
-                r1.append(p0[1])
+                r1.append(p1[0])
+                c0.append(p0[1])
                 c1.append(p1[1])
 
             r0 = np.array(r0)
             c0 = np.array(c0)
-            r1 = np.array(r1)            #accums = 259, accepted_lines = (259,), r0 = (264,)
+            r1 = np.array(r1)            
             c1 = np.array(c1)
-            # mp_lines = torch.from_numpy(np.stack([cy, cx], axis=1))
+           
             accums = np.array(accums)
             accepted_lines = accums > self.line_thresh
             good_obj_cnt = 0
@@ -99,9 +126,7 @@ class HoughLinesReward(RewardFunctionAbc):
                 c1 = c1[accepted_lines]
 
                 accums = accums[accepted_lines]
-                # circle_idxs = [disk(mp, rad, shape=single_sp_seg.shape) for mp, rad in zip(mp_circles, radii)]
-                # circle_sps = [torch.unique(single_sp_seg[circle_idx[0], circle_idx[1]]).long() for circle_idx in circle_idxs]
-                # obj_ids = [torch.unique(single_pred[circle_idx[0], circle_idx[1]]) for circle_idx in circle_idxs]
+
                 line_idxs = [line(R0, C0, R1, C1) for R0, C0, R1, C1 in zip(r0, c0, r1, c1)]
                 line_sps = [torch.unique(single_sp_seg[line_idx[0], line_idx[1]]).long() for line_idx in line_idxs]
                 obj_ids = [torch.unique(single_pred[line_idx[0], line_idx[1]]) for line_idx in line_idxs]
@@ -110,9 +135,14 @@ class HoughLinesReward(RewardFunctionAbc):
                     hough_score = (val - self.line_thresh) / (1 - self.line_thresh)
                     ## hough_score = torch.sigmoid(torch.tensor([8 * (hough_score - 0.5)])).item()
                     num_obj_score = 1 / max(len(obj_id), 1)
-                    if num_obj_score == 1 and obj_id[0] in potential_object_ids:
+#                     if num_obj_score == 1 and obj_id[0] in potential_object_ids:
+#                         good_obj_cnt += 1
+#                     edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
+                    # if num_obj_score == 1 and obj_id[0] in potential_object_ids:
+                    if obj_id[0] in potential_object_ids:
                         good_obj_cnt += 1
-                    edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
+                    # edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
+                    edge_score[line_sp] = hough_score
 
             score = 1.0 * (good_obj_cnt / 15) * int(good_obj_cnt > 5) + 0.0 * (1 / len(bg_object_ids))
             # score = 1 / len(bg_object_ids)
@@ -127,7 +157,7 @@ class HoughLinesReward(RewardFunctionAbc):
             edge_score = edge_score[edges].max(dim=0).values
             edge_scores.append(edge_score)
 
-        # edge_scores = torch.cat(edge_scores)
+      
         t_edge_scores = torch.cat(edge_scores)
         t_edge_scores = (t_edge_scores * exp_factor).exp() / (torch.ones_like(t_edge_scores) * exp_factor).exp()
         assert not torch.isnan(t_edge_scores).any() and \
