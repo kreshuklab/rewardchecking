@@ -60,7 +60,7 @@ def compute_reward(super_pixel, pred_img, s_subgraph, RewardFunction):
 def compare_rewards(folder, RewardFunction):
     print("Compare rewards for:", folder)
     s_subgraph = [4]
-    sp = imageio.imread(os.path.join(folder, "superpixels.tif"))
+    sp = imageio.imread(os.path.join(folder, "superpixel.tif"))
     merged_paths = glob(os.path.join(folder, "merged*.tif"))
     merged_paths.sort()
     merged_ims = [imageio.imread(pp) for pp in merged_paths]
@@ -75,7 +75,9 @@ def compare_rewards(folder, RewardFunction):
 
 def main():
     compare_rewards("./line_data", HoughLinesReward)
-    compare_rewards("./circle_data", HoughCirclesReward)
+    print()
+    print()
+    # compare_rewards("./circle_data", HoughCirclesReward)
 
 
 if __name__ == "__main__":
