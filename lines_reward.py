@@ -1,17 +1,11 @@
 import sys
 from reward_abc import RewardFunctionAbc
-# from skimage.measure import approximate_polygon, find_contours
-# from skimage.draw import polygon_perimeter, line
 from skimage.transform import hough_line, probabilistic_hough_line
-# from skimage.transform import hough_line_peaks
 import torch
 from skimage.draw import line
 from numpy.linalg import norm
 import numpy as np
 import matplotlib.pyplot as plt
-
-# from matplotlib import cm
-
 
 def plot_debug(single_pred, edge_image, hough_pred_lines):
     # generate figure
@@ -68,12 +62,9 @@ class HoughLinesReward(RewardFunctionAbc):
         # considered as potential foreground objects
 
         for single_pred, single_sp_seg, s_dir_edges in zip(prediction_segmentation, superpixel_segmentation, dir_edges):
-            # print("single_sp_seg.max()", single_sp_seg.max())
             edge_score = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
             if single_pred.max() == 0:  # image is empty
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
-                # print(edge_score.shape)
-                # print(edges.shape)
                 edge_score = edge_score[edges].max(dim=0).values
                 edge_scores.append(edge_score)
                 continue
@@ -101,72 +92,86 @@ class HoughLinesReward(RewardFunctionAbc):
             # get a binary image of all foreground objects
             # NOTE: in the circle example it looks like the hough trafo is computed for the outlines of the
             # circle. I have no idea why that is done instead of doing it for the actual circles
-            edge_image = torch.isin(single_pred, fg_pred_ids).detach().cpu().numpy().squeeze().astype("float32")
+            
+            accums_id = {}
+            line_idxs_id = {}
+            line_sps_id = {}
+            obj_ids_id = {}
 
-            # calculations for hough line reward
-            tested_angles = np.linspace(0, 2 * np.pi, 360, endpoint=False)
-            hough_res, angles, distc = hough_line(edge_image, theta=tested_angles)
-            # accums, angles, distcs = hough_line_peaks(hough_res, angles, distc, num_peaks=self.range_num[1])
-            hough_pred_lines = probabilistic_hough_line(edge_image, line_length=20, line_gap=10)
-            r_dists, thetas = self.compute_r_theta(prediction_segmentation, hough_pred_lines)
-            accums = self.find_accums(r_dists, thetas, hough_res)
+            for fg_pred_id in fg_pred_ids:
+                edge_image = single_pred == fg_pred_id
+                edge_image = edge_image.detach().cpu().numpy().squeeze().astype("float32")
+                tested_angles = np.linspace(0, 2 * np.pi, 360, endpoint=False)
+                hough_res, angles, distc = hough_line(edge_image, theta=tested_angles)
+                hough_pred_lines = probabilistic_hough_line(edge_image, line_length=20, line_gap=10)
+                r_dists, thetas = self.compute_r_theta(prediction_segmentation, hough_pred_lines)
+                accums = self.find_accums(r_dists, thetas, hough_res)
 
-            # for debugging
-            plot_debug(single_pred, edge_image, hough_pred_lines)
+                # for debugging
+                plot_debug(single_pred, edge_image, hough_pred_lines)
 
-            r0 = []
-            c0 = []
-            r1 = []
-            c1 = []
-            for lineـ in hough_pred_lines:
-                p0, p1 = lineـ
+                r0 = []
+                c0 = []
+                r1 = []
+                c1 = []
+                for lineـ in hough_pred_lines:
+                    p0, p1 = lineـ
 
-                r0.append(p0[0])
-                r1.append(p1[0])
-                c0.append(p0[1])
-                c1.append(p1[1])
+                    r0.append(p0[0])
+                    r1.append(p1[0])
+                    c0.append(p0[1])
+                    c1.append(p1[1])
 
-            r0 = np.array(r0)
-            c0 = np.array(c0)
-            r1 = np.array(r1)
-            c1 = np.array(c1)
+                r0 = np.array(r0)
+                c0 = np.array(c0)
+                r1 = np.array(r1)
+                c1 = np.array(c1)
 
-            accums = np.array(accums)
-            accepted_lines = accums > self.line_thresh
-            good_obj_cnt = 0
+                accums = np.array(accums)
+                accepted_lines = accums > self.line_thresh
+                good_obj_cnt = 0
 
-            if any(accepted_lines):
-                print("we accepted", len(accepted_lines), "lines")
+                if any(accepted_lines):
+                    print("we accepted", len(accepted_lines), "lines")
 
-                r0 = r0[accepted_lines]
-                c0 = c0[accepted_lines]
-                r1 = r1[accepted_lines]
-                c1 = c1[accepted_lines]
+                    r0 = r0[accepted_lines]
+                    c0 = c0[accepted_lines]
+                    r1 = r1[accepted_lines]
+                    c1 = c1[accepted_lines]
 
-                accums = accums[accepted_lines]
+                    accums = accums[accepted_lines]
 
-                line_idxs = [line(R0, C0, R1, C1) for R0, C0, R1, C1 in zip(r0, c0, r1, c1)]
-                line_sps = [torch.unique(single_sp_seg[line_idx[0], line_idx[1]]).long() for line_idx in line_idxs]
-                obj_ids = [torch.unique(single_pred[line_idx[0], line_idx[1]]) for line_idx in line_idxs]
+                    line_idxs = [line(R0, C0, R1, C1) for R0, C0, R1, C1 in zip(r0, c0, r1, c1)]
+                    line_sps = [torch.unique(single_sp_seg[line_idx[0], line_idx[1]]).long() for line_idx in line_idxs]
+                    obj_ids = [torch.unique(single_pred[line_idx[0], line_idx[1]]) for line_idx in line_idxs]
 
-                for line_sp, val, obj_id in zip(line_sps, accums, obj_ids):
-                    hough_score = (val - self.line_thresh) / (1 - self.line_thresh)
-                    # hough_score = torch.sigmoid(torch.tensor([8 * (hough_score - 0.5)])).item()
-                    # num_obj_score = 1 / max(len(obj_id), 1)
-                    # if num_obj_score == 1 and obj_id[0] in potential_object_ids:
-                    #     good_obj_cnt += 1
-                    # edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
-                    # if num_obj_score == 1 and obj_id[0] in potential_object_ids:
-                    if obj_id[0] in fg_pred_ids:
-                        good_obj_cnt += 1
-                    # edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
-                    edge_score[line_sp] = hough_score
+                    accums_id[fg_pred_id] = accums
+                    line_idxs_id[fg_pred_id] = line_idxs
+                    line_sps_id[fg_pred_id] = line_sps
+                    obj_ids_id[fg_pred_id] = obj_ids
 
-            score = 1.0 * (good_obj_cnt / 15) * int(good_obj_cnt > 5) + 0.0 * (1 / len(bg_pred_ids))
-            # score = 1 / len(bg_object_ids)
-            score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
-            edge_score[bg_sp_ids] = score.item()
+                    for line_sp, val, obj_id in zip(line_sps_id[fg_pred_id], accums_id[fg_pred_id], obj_ids_id[fg_pred_id]):
+                        hough_score = (val - self.line_thresh) / (1 - self.line_thresh)
+                        # hough_score = torch.sigmoid(torch.tensor([8 * (hough_score - 0.5)])).item()
+                        # num_obj_score = 1 / max(len(obj_id), 1)
+                        # if num_obj_score == 1 and obj_id[0] in potential_object_ids:
+                        #     good_obj_cnt += 1
+                        # edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
+                        # if num_obj_score == 1 and obj_id[0] in potential_object_ids:
+                        if obj_id[0] in fg_pred_ids:
+                            good_obj_cnt += 1
+                        # edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
+                        edge_score[line_sp] = hough_score
+            else:
+                print("No lines were accepted!!!!!")
+
+                score = 1.0 * (good_obj_cnt / 15) * int(good_obj_cnt > 5) + 0.0 * (1 / len(bg_pred_ids))
+                # score = 1 / len(bg_object_ids)
+                score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
+                edge_score[bg_sp_ids] = score.item()
+
             edge_score[false_sp_ids] = 0.0
+
             if torch.isnan(edge_score).any() or torch.isinf(edge_score).any():
                 print(Warning("NaN or inf in scores this should not happen"))
                 sys.stdout.flush()
@@ -174,8 +179,86 @@ class HoughLinesReward(RewardFunctionAbc):
             edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
             edge_score = edge_score[edges].max(dim=0).values
             edge_scores.append(edge_score)
-        else:
-            print("No lines were accepted!!!!!")
+            
+
+
+
+
+            # edge_image = torch.isin(single_pred, fg_pred_ids).detach().cpu().numpy().squeeze().astype("float32")
+            
+            ## calculations for hough line reward
+            # tested_angles = np.linspace(0, 2 * np.pi, 360, endpoint=False)
+            # hough_res, angles, distc = hough_line(edge_image, theta=tested_angles)
+            ## accums, angles, distcs = hough_line_peaks(hough_res, angles, distc, num_peaks=self.range_num[1])
+            #hough_pred_lines = probabilistic_hough_line(edge_image, line_length=20, line_gap=10)
+            # r_dists, thetas = self.compute_r_theta(prediction_segmentation, hough_pred_lines)
+            # accums = self.find_accums(r_dists, thetas, hough_res)
+
+            # for debugging
+            # plot_debug(single_pred, edge_image, hough_pred_lines)
+
+            # r0 = []
+            # c0 = []
+            # r1 = []
+            # c1 = []
+            # for lineـ in hough_pred_lines:
+            #     p0, p1 = lineـ
+
+            #     r0.append(p0[0])
+            #     r1.append(p1[0])
+            #     c0.append(p0[1])
+            #     c1.append(p1[1])
+
+            # r0 = np.array(r0)
+            # c0 = np.array(c0)
+            # r1 = np.array(r1)
+            # c1 = np.array(c1)
+
+            # accums = np.array(accums)
+            # accepted_lines = accums > self.line_thresh
+            # good_obj_cnt = 0
+
+            # if any(accepted_lines):
+            #     print("we accepted", len(accepted_lines), "lines")
+
+            #     r0 = r0[accepted_lines]
+            #     c0 = c0[accepted_lines]
+            #     r1 = r1[accepted_lines]
+            #     c1 = c1[accepted_lines]
+
+            #     accums = accums[accepted_lines]
+
+            #     line_idxs = [line(R0, C0, R1, C1) for R0, C0, R1, C1 in zip(r0, c0, r1, c1)]
+            #     line_sps = [torch.unique(single_sp_seg[line_idx[0], line_idx[1]]).long() for line_idx in line_idxs]
+            #     obj_ids = [torch.unique(single_pred[line_idx[0], line_idx[1]]) for line_idx in line_idxs]
+
+            #     for line_sp, val, obj_id in zip(line_sps, accums, obj_ids):
+            #         hough_score = (val - self.line_thresh) / (1 - self.line_thresh)
+            #         # hough_score = torch.sigmoid(torch.tensor([8 * (hough_score - 0.5)])).item()
+            #         # num_obj_score = 1 / max(len(obj_id), 1)
+            #         # if num_obj_score == 1 and obj_id[0] in potential_object_ids:
+            #         #     good_obj_cnt += 1
+            #         # edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
+            #         # if num_obj_score == 1 and obj_id[0] in potential_object_ids:
+            #         if obj_id[0] in fg_pred_ids:
+            #             good_obj_cnt += 1
+            #         # edge_score[line_sp] = 0.7 * hough_score + 0.3 * num_obj_score
+            #         edge_score[line_sp] = hough_score
+
+            # score = 1.0 * (good_obj_cnt / 15) * int(good_obj_cnt > 5) + 0.0 * (1 / len(bg_pred_ids))
+            # # score = 1 / len(bg_object_ids)
+            # score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
+            # edge_score[bg_sp_ids] = score.item()
+            # edge_score[false_sp_ids] = 0.0
+            # if torch.isnan(edge_score).any() or torch.isinf(edge_score).any():
+            #     print(Warning("NaN or inf in scores this should not happen"))
+            #     sys.stdout.flush()
+            #     assert False
+            # edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+            # edge_score = edge_score[edges].max(dim=0).values
+            # edge_scores.append(edge_score)
+        # else:
+            # print("No lines were accepted!!!!!")
 
         t_edge_scores = torch.cat(edge_scores)
         t_edge_scores = (t_edge_scores * exp_factor).exp() / (torch.ones_like(t_edge_scores) * exp_factor).exp()
