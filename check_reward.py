@@ -10,6 +10,7 @@ from graphs import get_edge_indices, collate_edges
 from rag_utils import find_dense_subgraphs
 
 from lines_reward import HoughLinesReward
+# from line_rewards2 import HoughLinesReward
 from circles_reward import HoughCirclesReward
 
 
