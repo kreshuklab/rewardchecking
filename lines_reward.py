@@ -7,6 +7,7 @@ from numpy.linalg import norm
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def plot_debug(single_pred, edge_image, hough_pred_lines, name):
     # generate figure
     fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharex=True, sharey=True)
@@ -46,8 +47,10 @@ class HoughLinesReward(RewardFunctionAbc):
         # super().__init__(s_subgraph, *args, **kwargs)
 
     def __call__(
-        self, prediction_segmentation, superpixel_segmentation, node_feats, dir_edges, subgraph_indices, actions,
-        *args, **kwargs
+        self,
+        prediction_segmentation, superpixel_segmentation,
+        node_feats, dir_edges, subgraph_indices, actions,
+        name, *args, **kwargs
     ):
 
         dev = prediction_segmentation.device
@@ -86,22 +89,11 @@ class HoughLinesReward(RewardFunctionAbc):
                 single_sp_seg[torch.isin(single_pred, false_pred_ids)]
             )
 
-            # FIXME this doesn't make much sense, we have to compute the hough scores for the individual
-            # predicted objects, and not for the whole foreground!!
-            # (otherwise it doesn't make a difference if an object is split up into many objects or not)
-            # get a binary image of all foreground objects
-            # NOTE: in the circle example it looks like the hough trafo is computed for the outlines of the
-            # circle. I have no idea why that is done instead of doing it for the actual circles
-            
             accums_id = {}
             line_idxs_id = {}
             line_sps_id = {}
             obj_ids_id = {}
             edge_scores_id = {}
-
-            # FOR DEBUG
-            rand_id = np.random.randint(0, 10000)
-            print(rand_id)
 
             for fg_pred_id in fg_pred_ids:
                 edge_score = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
@@ -109,12 +101,14 @@ class HoughLinesReward(RewardFunctionAbc):
                 edge_image = edge_image.detach().cpu().numpy().squeeze().astype("float32")
                 tested_angles = np.linspace(-np.pi/2, np.pi/2, 180, endpoint=False)
                 hough_res, angles, distc = hough_line(edge_image, theta=tested_angles)
-                hough_pred_lines = probabilistic_hough_line(edge_image, line_length=20, line_gap=10, theta=tested_angles)
+                hough_pred_lines = probabilistic_hough_line(
+                    edge_image, line_length=20, line_gap=10, theta=tested_angles
+                )
                 r_dists, thetas = self.compute_r_theta(prediction_segmentation, hough_pred_lines)
                 accums = self.find_accums(r_dists, thetas, hough_res)
 
                 # for debugging
-                plot_debug(single_pred, edge_image, hough_pred_lines, name=f'debug-{rand_id}-{fg_pred_id}')
+                plot_debug(single_pred, edge_image, hough_pred_lines, name=f'debug-{name}-{fg_pred_id}')
 
                 r0 = []
                 c0 = []
@@ -156,7 +150,9 @@ class HoughLinesReward(RewardFunctionAbc):
                     line_sps_id[fg_pred_id] = line_sps
                     obj_ids_id[fg_pred_id] = obj_ids
 
-                    for line_sp, val, obj_id in zip(line_sps_id[fg_pred_id], accums_id[fg_pred_id], obj_ids_id[fg_pred_id]):
+                    for line_sp, val, obj_id in zip(
+                        line_sps_id[fg_pred_id], accums_id[fg_pred_id], obj_ids_id[fg_pred_id]
+                    ):
                         hough_score = (val - self.line_thresh) / (1 - self.line_thresh)
                         # hough_score = torch.sigmoid(torch.tensor([8 * (hough_score - 0.5)])).item()
                         # num_obj_score = 1 / max(len(obj_id), 1)
@@ -185,9 +181,7 @@ class HoughLinesReward(RewardFunctionAbc):
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_score = edge_score[edges].max(dim=0).values
                 edge_scores.append(edge_score)
-                edge_scores_id[fg_pred_id] = np.mean(edge_score)
-
-
+                edge_scores_id[fg_pred_id] = edge_score.mean()
 
         t_edge_scores = torch.cat(edge_scores)
         t_edge_scores = (t_edge_scores * exp_factor).exp() / (torch.ones_like(t_edge_scores) * exp_factor).exp()
@@ -203,9 +197,12 @@ class HoughLinesReward(RewardFunctionAbc):
     def compute_r_theta(self, pred_seg, lines):
         origin_point = np.array([0, 0])
         # r_dist = np.linalg.norm(np.cross(p2-p1, p1-p3))/norm(p2-p1)
-        r_dists = [np.cross(np.asarray(ll[1]) - np.asarray(ll[0]),
-                                 np.asarray(ll[0]) - origin_point) / norm(np.asarray(ll[1])-np.asarray(ll[0]))
-                   for ll in lines]
+        r_dists = [
+            np.cross(
+                np.asarray(ll[1]) - np.asarray(ll[0]),
+                np.asarray(ll[0]) - origin_point) / norm(np.asarray(ll[1])-np.asarray(ll[0]))
+            for ll in lines
+        ]
         # thetas = [np.arctan(-(l[1][0] - l[0][0]) / (l[1][1] - l[0][1])) for l in lines]
         thetas = []
         for ll in lines:
@@ -218,4 +215,5 @@ class HoughLinesReward(RewardFunctionAbc):
         return r_dists, thetas
 
     def find_accums(self, r_dists, thetas, hough_res):
-        return [hough_res[int(r + (hough_res.shape[0]-1) / 2)][int(np.rad2deg(th + np.pi / 2))] for r, th in zip(r_dists, thetas)]
+        return [hough_res[int(r + (hough_res.shape[0]-1) / 2)][int(np.rad2deg(th + np.pi / 2))]
+                for r, th in zip(r_dists, thetas)]

@@ -14,7 +14,7 @@ from lines_reward import HoughLinesReward
 from circles_reward import HoughCirclesReward
 
 
-def compute_reward(super_pixel, pred_img, s_subgraph, RewardFunction):
+def compute_reward(super_pixel, pred_img, s_subgraph, RewardFunction, name):
     super_pixelT = torch.from_numpy(super_pixel)
     pred_imgT = torch.from_numpy(pred_img)
     graph = compute_rag(super_pixelT)
@@ -53,7 +53,8 @@ def compute_reward(super_pixel, pred_img, s_subgraph, RewardFunction):
                              gt=None, dir_edges=dir_edge_ids,
                              superpixel_segmentation=super_pixelT,
                              node_feats=None, actions=None,
-                             subgraph_indices=SI, sg_gt_edges=None)
+                             subgraph_indices=SI, sg_gt_edges=None,
+                             name=name)
 
     return reward
 
@@ -66,11 +67,12 @@ def compare_rewards(folder, RewardFunction):
     merged_paths.sort()
     merged_ims = [imageio.imread(pp) for pp in merged_paths]
 
-    reward0 = compute_reward(sp, sp, s_subgraph, RewardFunction)
+    reward0 = compute_reward(sp, sp, s_subgraph, RewardFunction, name="superpix")
     print("The reward of the superpixels is:", reward0)
 
     for pp, im in zip(merged_paths, merged_ims):
-        reward = compute_reward(sp, im, s_subgraph, RewardFunction)
+        name = os.path.splitext(os.path.basename(pp))[0]
+        reward = compute_reward(sp, im, s_subgraph, RewardFunction, name=name)
         print("The reward of", pp, "is:", reward)
 
 
