@@ -8,7 +8,7 @@ from reward_abc import RewardFunctionAbc
 
 class SimpleLineReward(RewardFunctionAbc):
 
-    def __init__(self, s_subgraph, expected_length=100.0, expected_width=5.0, *args, **kwargs):
+    def __init__(self, s_subgraph, expected_length=45.5, expected_width=2.1, *args, **kwargs):
         super().__init__(s_subgraph, *args, **kwargs)
         self.s_subgraph = s_subgraph
         self.expected_length = expected_length
