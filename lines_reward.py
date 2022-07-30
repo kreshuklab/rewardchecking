@@ -97,6 +97,7 @@ class HoughLinesReward(RewardFunctionAbc):
             line_idxs_id = {}
             line_sps_id = {}
             obj_ids_id = {}
+            edge_scores_id = {}
 
             # FOR DEBUG
             rand_id = np.random.randint(0, 10000)
@@ -184,6 +185,9 @@ class HoughLinesReward(RewardFunctionAbc):
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_score = edge_score[edges].max(dim=0).values
                 edge_scores.append(edge_score)
+                edge_scores_id[fg_pred_id] = np.mean(edge_score)
+
+
 
         t_edge_scores = torch.cat(edge_scores)
         t_edge_scores = (t_edge_scores * exp_factor).exp() / (torch.ones_like(t_edge_scores) * exp_factor).exp()
