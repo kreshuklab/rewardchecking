@@ -9,9 +9,9 @@ from elf.segmentation import compute_rag
 from graphs import get_edge_indices, collate_edges
 from rag_utils import find_dense_subgraphs
 
-from lines_reward import HoughLinesReward
-# from line_rewards2 import HoughLinesReward
-from circles_reward import HoughCirclesReward
+# from lines_reward import HoughLinesReward
+# from circles_reward import HoughCirclesReward
+from simple_line_reward import SimpleLineReward
 
 
 def compute_reward(super_pixel, pred_img, s_subgraph, RewardFunction, name):
@@ -77,7 +77,7 @@ def compare_rewards(folder, RewardFunction):
 
 
 def main():
-    compare_rewards("./line_data", HoughLinesReward)
+    compare_rewards("./line_data", SimpleLineReward)
     print()
     print()
     # compare_rewards("./circle_data", HoughCirclesReward)

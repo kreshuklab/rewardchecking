@@ -9,7 +9,7 @@ from reward_abc import RewardFunctionAbc
 class SimpleLineReward(RewardFunctionAbc):
 
     def __init__(self, s_subgraph, expected_length=100.0, expected_width=5.0, *args, **kwargs):
-        super().__init__()
+        super().__init__(s_subgraph, *args, **kwargs)
         self.s_subgraph = s_subgraph
         self.expected_length = expected_length
         self.expected_width = expected_width
@@ -54,7 +54,7 @@ class SimpleLineReward(RewardFunctionAbc):
 
             # compute the region features with a dummy input
             region_features = vigra.analysis.extractRegionFeatures(
-                np.zeros(single_pred.shape, dtype="float32"), single_pred.astype("uint32")
+                np.zeros(single_pred.shape, dtype="float32"), single_pred.detach().numpy().astype("uint32")
             )
             region_radii = region_features["RegionRadii"]
 
@@ -76,9 +76,9 @@ class SimpleLineReward(RewardFunctionAbc):
                     # derive the score from the radii
                     length, width = this_radii
                     ratio = length / width
-                    score_len = 1.0 - np.ceil(np.abs(length - self.expected_length) / self.expected_length, 0.0, 1.0)
-                    score_wid = 1.0 - np.ceil(np.abs(width - self.expected_width) / self.expected_width, 0.0, 1.0)
-                    score_ratio = 1.0 - np.ceil(np.abs(ratio - self.expected_ratio) / self.expected_ratio, 0.0, 1.0)
+                    score_len = 1.0 - np.clip(np.abs(length - self.expected_length) / self.expected_length, 0.0, 1.0)
+                    score_wid = 1.0 - np.clip(np.abs(width - self.expected_width) / self.expected_width, 0.0, 1.0)
+                    score_ratio = 1.0 - np.clip(np.abs(ratio - self.expected_ratio) / self.expected_ratio, 0.0, 1.0)
                     this_score = 0.33 * score_len + 0.33 * score_wid + 0.33 * score_ratio
 
                 # case 2: this is a background object. we only want a single background object, so we assign
